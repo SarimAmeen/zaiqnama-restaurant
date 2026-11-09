@@ -185,7 +185,7 @@ footer .grid{margin-bottom:20px}footer h4{color:var(--saffron);margin-bottom:8px
 <section class="section" id="adminPanel" style="display:none"><div class="container"><p style="text-align:right"><button class="btn dark" id="logoutBtn" style="padding:6px 16px">Log out</button></p><div class="stats" id="stats"></div>
  <h2 style="text-align:left">Incoming Orders</h2><br><div class="tablewrap" id="orderTable"></div><br>
  <h2 style="text-align:left">Table Reservations</h2><br><div class="tablewrap" id="resTable"></div><br>
- <h2 style="text-align:left">Sold-out items</h2><br><div class="tablewrap" id="stockTable"></div><br><button class="btn" id="restock">Restock all items</button> <button class="btn dark" id="reset">Delete all demo data</button></div></section>
+ <h2 style="text-align:left">Sold-out items</h2><br><div class="tablewrap" id="stockTable"></div><br><button class="btn" id="restock">Restock all items</button> <button class="btn" id="seed">Load demo data</button> <button class="btn dark" id="reset">Delete all demo data</button></div></section>
 </div>
 <div class="page" id="page-track"><section class="page-title"><h1>Track Your Order</h1><p>See where your order is, from kitchen to ready</p></section><section class="section alt" id="track"><div class="container"><h2>Find Your Order</h2><p class="sub">Enter your order number (e.g. ZN-1001) or the phone/email you used</p>
  <div class="filters" style="max-width:600px;margin:0 auto 20px"><input id="trackInput" placeholder="Order number or contact"><button class="btn dark" id="trackBtn">Find</button></div><div id="trackResult" style="max-width:800px;margin:auto"></div></div></section></div>
@@ -532,6 +532,43 @@ $('orderTable').onclick = e => { if (e.target.dataset.no){ setStatus(e.target.da
 $('stockTable').onclick = e => { if (e.target.dataset.restock){ const s = load('stock', {}); s[e.target.dataset.restock] = START_STOCK; save('stock', s); render(); } };
 $('restock').onclick = () => { const s = {}; MENU.forEach(i => s[i.id] = START_STOCK); save('stock', s); render(); alert('All items restocked.'); };
 $('reset').onclick = () => { if (confirm('Delete ALL orders, reservations, wishlist, cart and stock data in this browser?')){ ['orders','orderItems','stock','orderCounter','cart','reservations','messages','wishlist'].forEach(k => drop(k)); render(); } };
+
+// ---- DEMONSTRATION DATASET: adds 8 sample orders (every status), 3 reservations and 2 wishlisted dishes ----
+const DEMO_ORDERS = [   // [customer, contact, payment, minutes ago, final status, [[dish name, qty], ...]]
+  ['Ayesha Khan','03000000001','cash',2,'Received',[['Chicken Biryani (Single Plate)',2],['Sweet Lassi (Regular)',2]]],
+  ['Hamza Raza','03000000002','card',12,'Preparing',[['Chicken Karahi (Half)',1],['Seekh Kabab (4 pcs)',1]]],
+  ['Sana Malik','03000000003','cash',25,'Ready',[['Zinger Burger (Single)',2],['Loaded Fries (Single)',1]]],
+  ['Bilal Ahmed','03000000004','card',120,'Completed',[['Mutton Biryani (Full Family)',1],['Gulab Jamun (Double)',1]]],
+  ['Zainab Ali','03000000005','cash',180,'Completed',[['Nihari (Half)',2],['Kheer (Single)',2]]],
+  ['Usman Tariq','03000000006','card',300,'Completed',[['Pizza Tikka (Large)',1],['Mango Shake (Regular)',2]]],
+  ['Fatima Noor','03000000007','cash',240,'Cancelled',[['Falooda (Single)',1]]],
+  ['Hassan Iqbal','03000000008','card',1,'Received',[['Chicken Shawarma (Single)',3]]]
+];
+function seedDemo(){
+  if (!confirm('Add 8 sample orders, 3 reservations and 2 wishlist items for demonstration?')) return;
+  const orders = load('orders', []), orderItems = load('orderItems', []), stock = load('stock', {});
+  let counter = load('orderCounter', 1000);
+  DEMO_ORDERS.forEach(d => {
+    const lines = d[5].map(x => ({ item: MENU.find(i => i.name === x[0]), qty: x[1] }));
+    const subtotal = lines.reduce((t, l) => t + l.item.price * l.qty, 0), tax = Math.round(subtotal * TAX_RATE[d[2]]);
+    const start = Date.now() - d[3] * 60000, iso = m => new Date(start + m * 60000).toISOString();
+    const flow = { Received: [0], Preparing: [0, 3], Ready: [0, 3, 14], Completed: [0, 3, 14, 20], Cancelled: [0, 2] }[d[4]];
+    const names = d[4] === 'Cancelled' ? ['Received', 'Cancelled'] : STATUSES.slice(0, flow.length), times = {};
+    names.forEach((n, k) => times[n] = iso(flow[k]));
+    counter++; const orderNo = 'ZN-' + counter;
+    orders.push({ orderNo, customerName: d[0], contact: d[1], payment: d[2], subtotal, tax, total: subtotal + tax, status: d[4], createdAt: iso(0), times });
+    lines.forEach(l => { orderItems.push({ orderNo, itemId: l.item.id, name: l.item.name, price: l.item.price, qty: l.qty });
+      if (d[4] !== 'Cancelled') stock[l.item.id] = getStock(l.item) - l.qty; });
+  });
+  save('orders', orders); save('orderItems', orderItems); save('stock', stock); save('orderCounter', counter);
+  const res = load('reservations', []);
+  [['Ayesha Khan','03000000001','2026-12-05','19:30',4],['Hamza Raza','03000000002','2026-12-06','20:00',6],['Sana Malik','03000000003','2026-12-07','13:00',2]]
+    .forEach(r => res.push({ name: r[0], contact: r[1], date: r[2], time: r[3], guests: r[4] }));
+  save('reservations', res);
+  const out = MENU.filter(isSoldOut).slice(0, 2).map(i => i.id); save('wishlist', out);   // two sold-out dishes on the wishlist
+  render(); window.dispatchEvent(new Event('storage'));
+}
+$('seed').onclick = seedDemo;
 window.addEventListener('storage', showAdmin); setInterval(() => { if (isAdmin()) render(); }, 4000);   // pick up new orders automatically
 showAdmin();
 
